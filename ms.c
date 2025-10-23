@@ -4,8 +4,12 @@
 #include <sys/stat.h> //mkdir()
 #include <errno.h> //check mkdir() errors
 #include <json-c/json.h> //json-c library header
+#include <time.h> //for server-client date comparison and check
 
-void ensure_directory_exists(const char *path) {
+
+static void
+ensure_directory_exists(const char *path) {
+
   char *path_copy = strdup(path);
 
   if (path_copy == NULL) {
@@ -44,69 +48,171 @@ void ensure_directory_exists(const char *path) {
   printf("Finished creating directories\n");
 }
 
-void create_default_config(const char *path) {
-  printf("Creating default configuration...\n");
+static json_object
+*get_default_json() {
 
-  char *path_copy = strdup(path);
+  json_object *default_json = json_object_new_object();
 
-  size_t size = strlen(path_copy);
 
-  if (size > 0 && path_copy[size -1] == '/') {
-    path_copy[size -1] = '\0';
-  }
-
-  json_object *config_json= json_object_new_object();
-
-  json_object_object_add(config_json, "ip", json_object_new_string("10.0.0.1"));
-
-  ensure_directory_exists(path);
-
-  char config_file_path[1024];
-  snprintf(config_file_path, sizeof(config_file_path), "%s/config.jsonc", path_copy);
-  printf("path is %s\n", config_file_path);
-
-  FILE *config_fp = fopen(config_file_path, "w");
-
-  char *config_json_string = json_object_to_json_string_ext(config_json, JSON_C_TO_STRING_PRETTY);
-
-  fprintf(config_fp, "%s\n", config_json_string);
-  fclose(config_fp);
-  json_object_put(config_json);
-  printf("Finished creating default config\n");
 }
 
-int main(int argc, char **argv){
-
+static const char
+*get_default_config_path() {
   char config_path[1024];
   const char *home_dir = getenv("HOME");
 
   if (home_dir == NULL) {
     fprintf(stderr, "Error getting the HOME environment variable.\n");
-    return 1;
+    return nullptr;
   }
 
   snprintf(config_path, sizeof(config_path), "%s/.config/minisync/config.jsonc", home_dir);
+  const char *result = config_path;
+  return result;
+}
 
-  printf("config path es %s\n", config_path);
+static FILE
+*get_default_config_file() {
+  const char *default_config_path = get_default_config_path();
+  char *default_config_dir = strdup(default_config_path);
 
-  json_object *parsed_json = json_object_from_file(config_path);
+  char *last_slash = strrchr(default_config_dir, '/');
+
+  *last_slash = '\0';
+  ensure_directory_exists(default_config_dir);
+
+  FILE *config = fopen(default_config_path, "w");
+  return config;
+}
+
+
+static void
+write_json(json_object *json) {
+  FILE *config = get_default_config_file();
+  char *config_json_string = json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY);
+  fprintf(config, "%s\n", config_json_string);
+  fclose(config);
+  json_object_put(config_json_string);
+}
+
+static void
+create_default_config() {
+  printf("Creating default configuration...\n");
+
+  json_object *config_json= get_default_json();
+
+  write_json(config_json);
+
+  printf("Finished creating default config\n");
+}
+
+static json_object*
+read_config() {
+
+  const char *path = get_default_config_path();
+  json_object *parsed_json= json_object_from_file(path);
 
   if (parsed_json == NULL) {
-    fprintf(stdout , "Error opening or parsing JSON file from %s\n", config_path);
+    fprintf(stdout , "Error opening or parsing JSON file from %s\n", path);
     printf("Would you like to create a fresh default config? [y/n]: ");
 
     int response = getchar();
 
     if (response == 'y' || response == 'Y'){
-      char config_dir_path[1024];
-      snprintf(config_dir_path, sizeof(config_dir_path), "%s/.config/minisync", home_dir);
-      create_default_config(config_dir_path);
+      create_default_config();
     } else {
-      return 1;
+      return nullptr;
     }
+  } else {
+    return parsed_json;
   }
-  json_object *new_parsed_json = json_object_from_file(config_path);
 
+  json_object *new_parsed_json = json_object_from_file(path);
+
+  return new_parsed_json;
+}
+
+static void
+usage() {
+  puts("usage: ms [option]\n");
+  exit(1);
+}
+
+static struct tm
+get_config_date() {
+  json_object *config = read_config();
+
+  json_object *j_sec, *j_min, *j_hour, *j_mday, *j_mon, *j_year, *j_wday, *j_yday, *j_isdst;
+
+  json_object_object_get_ex(config, "tm_sec",   &j_sec);
+  json_object_object_get_ex(config, "tm_min",   &j_min);
+  json_object_object_get_ex(config, "tm_hour",  &j_hour);
+  json_object_object_get_ex(config, "tm_mday",  &j_mday);
+  json_object_object_get_ex(config, "tm_mon",   &j_mon);
+  json_object_object_get_ex(config, "tm_year",  &j_year);
+  json_object_object_get_ex(config, "tm_wday",  &j_wday);
+  json_object_object_get_ex(config, "tm_yday",  &j_yday);
+  json_object_object_get_ex(config, "tm_isdst", &j_isdst);
+
+}
+
+static json_object
+*get_current_date() {
+  time_t t = time(NULL);
+
+  struct tm *current_time = localtime(&t);
+
+  json_object *time = json_object_new_object();
+
+  json_object_object_add(time, "tm_sec",   json_object_new_int(current_time->tm_sec));
+  json_object_object_add(time, "tm_min",   json_object_new_int(current_time->tm_min));
+  json_object_object_add(time, "tm_hour",  json_object_new_int(current_time->tm_hour));
+  json_object_object_add(time, "tm_mday",  json_object_new_int(current_time->tm_mday));
+  json_object_object_add(time, "tm_mon",   json_object_new_int(current_time->tm_mon));
+  json_object_object_add(time, "tm_year",  json_object_new_int(current_time->tm_year));
+  json_object_object_add(time, "tm_wday",  json_object_new_int(current_time->tm_wday));
+  json_object_object_add(time, "tm_yday",  json_object_new_int(current_time->tm_yday));
+  json_object_object_add(time, "tm_isdst", json_object_new_int(current_time->tm_isdst));
+
+}
+
+static void
+update_date() {
+
+  json_object *time = get_current_date();
+  json_object *config = read_config();
+
+  json_object_object_add(config, "time", time);
+
+  write_json(config);
+}
+
+static void
+status() {
+
+}
+
+int main(int argc, char **argv){
+
+  if (argc == 1) {
+    usage();
+  }
+
+  for (int i = 1; i < argc; i++) {
+
+    if (!strcmp(argv[i], "status")) {
+      status();
+      return 0;
+    } if (!strcmp(argv[i], "init")) {
+      create_default_config();
+      return 0;
+    }
+
+  }
+  return 1;
+
+
+/*
   struct json_object *ip;
 
   if (!json_object_object_get_ex(new_parsed_json, "ip", &ip)) {
@@ -128,5 +234,6 @@ int main(int argc, char **argv){
 
   return 0;
 
+  */
 
 }
