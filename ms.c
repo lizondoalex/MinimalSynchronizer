@@ -8,6 +8,24 @@
 
 
 static void
+get_current_date(json_object *result) {
+  time_t t = time(NULL);
+
+  struct tm *current_time = localtime(&t);
+
+  json_object_object_add(result, "tm_sec",   json_object_new_int(current_time->tm_sec));
+  json_object_object_add(result, "tm_min",   json_object_new_int(current_time->tm_min));
+  json_object_object_add(result, "tm_hour",  json_object_new_int(current_time->tm_hour));
+  json_object_object_add(result, "tm_mday",  json_object_new_int(current_time->tm_mday));
+  json_object_object_add(result, "tm_mon",   json_object_new_int(current_time->tm_mon));
+  json_object_object_add(result, "tm_year",  json_object_new_int(current_time->tm_year));
+  json_object_object_add(result, "tm_wday",  json_object_new_int(current_time->tm_wday));
+  json_object_object_add(result, "tm_yday",  json_object_new_int(current_time->tm_yday));
+  json_object_object_add(result, "tm_isdst", json_object_new_int(current_time->tm_isdst));
+
+}
+
+static void
 ensure_directory_exists(const char *path) {
 
   char *path_copy = strdup(path);
@@ -35,7 +53,6 @@ ensure_directory_exists(const char *path) {
     }
   }
   if (mkdir(path_copy, 0755) != 0) {
-    printf("mkdir no ha devuelto bien, este es el path %s\n", path_copy);
     if (errno != EEXIST) {
       fprintf(stderr, "Error creating directory %s\n", path_copy);
       perror("mkdir");
@@ -48,17 +65,11 @@ ensure_directory_exists(const char *path) {
   printf("Finished creating directories\n");
 }
 
-static json_object
-*get_default_json() {
 
-  json_object *default_json = json_object_new_object();
+static void
+*get_default_config_path(char *buffer, size_t buffer_size) {
+  puts("getting default config path");
 
-
-}
-
-static const char
-*get_default_config_path() {
-  char config_path[1024];
   const char *home_dir = getenv("HOME");
 
   if (home_dir == NULL) {
@@ -66,14 +77,14 @@ static const char
     return nullptr;
   }
 
-  snprintf(config_path, sizeof(config_path), "%s/.config/minisync/config.jsonc", home_dir);
-  const char *result = config_path;
-  return result;
+  snprintf(buffer, buffer_size, "%s/.config/minisync/config.jsonc", home_dir);
+
 }
 
 static FILE
 *get_default_config_file() {
-  const char *default_config_path = get_default_config_path();
+  char default_config_path[1024];
+  get_default_config_path(default_config_path, sizeof(default_config_path));
   char *default_config_dir = strdup(default_config_path);
 
   char *last_slash = strrchr(default_config_dir, '/');
@@ -92,7 +103,15 @@ write_json(json_object *json) {
   char *config_json_string = json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY);
   fprintf(config, "%s\n", config_json_string);
   fclose(config);
-  json_object_put(config_json_string);
+}
+
+static json_object
+*get_default_json() {
+
+  json_object *default_json = json_object_new_object();
+  get_current_date(default_json);
+
+
 }
 
 static void
@@ -108,8 +127,9 @@ create_default_config() {
 
 static json_object*
 read_config() {
+  char path[1024];
 
-  const char *path = get_default_config_path();
+  get_default_config_path(path, sizeof(path));
   json_object *parsed_json= json_object_from_file(path);
 
   if (parsed_json == NULL) {
@@ -156,35 +176,17 @@ get_config_date() {
 
 }
 
-static json_object
-*get_current_date() {
-  time_t t = time(NULL);
-
-  struct tm *current_time = localtime(&t);
-
-  json_object *time = json_object_new_object();
-
-  json_object_object_add(time, "tm_sec",   json_object_new_int(current_time->tm_sec));
-  json_object_object_add(time, "tm_min",   json_object_new_int(current_time->tm_min));
-  json_object_object_add(time, "tm_hour",  json_object_new_int(current_time->tm_hour));
-  json_object_object_add(time, "tm_mday",  json_object_new_int(current_time->tm_mday));
-  json_object_object_add(time, "tm_mon",   json_object_new_int(current_time->tm_mon));
-  json_object_object_add(time, "tm_year",  json_object_new_int(current_time->tm_year));
-  json_object_object_add(time, "tm_wday",  json_object_new_int(current_time->tm_wday));
-  json_object_object_add(time, "tm_yday",  json_object_new_int(current_time->tm_yday));
-  json_object_object_add(time, "tm_isdst", json_object_new_int(current_time->tm_isdst));
-
-}
-
 static void
 update_date() {
 
-  json_object *time = get_current_date();
+  json_object *time = json_object_new_object();
+  get_current_date(time);
   json_object *config = read_config();
 
   json_object_object_add(config, "time", time);
 
   write_json(config);
+  json_object_put(config);
 }
 
 static void
@@ -193,6 +195,19 @@ status() {
 }
 
 int main(int argc, char **argv){
+
+  update_date();
+
+  json_object *json = read_config();
+  char *config_json_string = json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY);
+  printf("current config: %s\n", config_json_string);
+  json_object *time = json_object_new_object();
+  get_current_date(time);
+  char *s = json_object_to_json_string_ext(time, JSON_C_TO_STRING_PRETTY);
+  printf("current time = %s\n", s);
+
+  return 1;
+
 
   if (argc == 1) {
     usage();
