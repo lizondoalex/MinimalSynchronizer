@@ -24,6 +24,56 @@ get_current_date(json_object *result) {
   json_object_object_add(result, "tm_isdst", json_object_new_int(current_time->tm_isdst));
 }
 
+static char*
+execute_command(const char* command) {
+  const int BUFFER_SIZE = 4096;
+  FILE *pipe = NULL;
+  char buffer[BUFFER_SIZE];
+
+  char* result = NULL;
+  size_t total_size = 0;
+
+  pipe = popen(command, "r");
+  if (pipe == NULL) {
+    perror("failed to open pipe on execute_command");
+    return NULL;
+  }
+
+  result = (char*) malloc(BUFFER_SIZE);
+  if (result == NULL) {
+    perror("failed to malloc in execute_command");
+    pclose(pipe);
+    return NULL;
+  }
+  result[0] = '\0';
+  total_size = BUFFER_SIZE;
+
+  while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+    size_t new_size = total_size;
+
+    while (strlen(result) + strlen(buffer) + 1 > new_size) {
+      new_size *= 2;
+    }
+
+    if (new_size > total_size) {
+      char* temp_ptr = realloc(result, new_size);
+      if (temp_ptr == NULL) {
+        perror("realloc failed");
+        free(result);
+        pclose(pipe);
+        return NULL;
+      }
+      result = temp_ptr;
+      total_size = new_size;
+    }
+
+    strcat(result, buffer);
+  }
+
+  pclose(pipe);
+  return result;
+}
+
 static void
 ensure_directory_exists(const char *path) {
 
@@ -101,18 +151,26 @@ write_json(json_object *json) {
   fclose(config);
 }
 
-static json_object
-*get_default_json() {
+static void
+get_default_json(json_object *result) {
 
-  json_object *default_json = json_object_new_object();
-  get_current_date(default_json);
+  result = json_object_new_object();
+  json_object *time = json_object_new_object();
+  get_current_date(time);
+
+  json_object_object_add(result, "ip", json_object_new_string("10.0.0.1"));
+  json_object_object_add(result, "clientDirectory", json_object_new_string("shared"));
+  json_object_object_add(result, "serverDirectory", json_object_new_string("shared"));
+  json_object_object_add(result, "time", time);
+
 }
 
 static void
 create_default_config() {
   printf("Creating default configuration...\n");
 
-  json_object *config_json= get_default_json();
+  json_object *config_json;
+  get_default_json(config_json);
 
   write_json(config_json);
 
@@ -138,11 +196,15 @@ read_config() {
       return nullptr;
     }
   } else {
+    char *s = json_object_to_json_string_ext(parsed_json, JSON_C_TO_STRING_PRETTY);
+    printf("%s\n", s);
     return parsed_json;
   }
 
   json_object *new_parsed_json = json_object_from_file(path);
 
+  char *s = json_object_to_json_string_ext(new_parsed_json, JSON_C_TO_STRING_PRETTY);
+  printf("%s\n", s);
   return new_parsed_json;
 }
 
@@ -186,20 +248,27 @@ diff() {
 int main(int argc, char **argv){
 
   if (argc == 1) {
+    json_object *result = read_config();
+    char *s = json_object_to_json_string_ext(result, JSON_C_TO_STRING_PRETTY);
+    printf("%s\n", s);
     usage();
+
   }
 
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "status")) {
       status();
-    }else if (!strcmp(argv[i], "init")) {
+    } else if (!strcmp(argv[i], "init")) {
       create_default_config();
-    }else if (!strcmp(argv[i], "diff")) {
+    } else if (!strcmp(argv[i], "diff")) {
       diff();
-    }else if (!strcmp(argv[i], "config")) {
+    } else if (!strcmp(argv[i], "config")) {
       char path[1024];
       get_default_config_path(path, sizeof(path));
       printf("The path to the config file is: %s\n", path);
+    } else if (!strcmp(argv[i], "test")) {
+      char *result = execute_command("load");
+      printf("%s\n", result);
     }
 
   }
