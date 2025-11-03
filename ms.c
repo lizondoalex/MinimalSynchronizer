@@ -161,6 +161,7 @@ get_default_json() {
   json_object_object_add(result, "ip", json_object_new_string("10.0.0.1"));
   json_object_object_add(result, "clientDirectory", json_object_new_string("shared"));
   json_object_object_add(result, "serverDirectory", json_object_new_string("shared"));
+  json_object_object_add(result, "serverHostName", json_object_new_string("serverhostname"));
   json_object_object_add(result, "time", time);
 
   return result;
@@ -201,7 +202,6 @@ read_config() {
     }
   } else {
     const char *s = json_object_to_json_string_ext(parsed_json, JSON_C_TO_STRING_PRETTY);
-    printf("%s\n", s);
     return parsed_json;
   }
 
@@ -241,6 +241,39 @@ update_date() {
 
 static void
 status() {
+  json_object *config = read_config();
+  if (config == NULL) {
+    fprintf(stderr, "failed reading config\n");
+    exit(1);
+  }
+  json_object *hostname;
+  if (!json_object_object_get_ex(config, "serverHostName", &hostname)) {
+    fprintf(stderr, "failed reading serverHostName\n");
+    exit(1);
+  }
+  const char *hostString = json_object_to_json_string_ext(hostname, JSON_C_TO_STRING_PRETTY);
+  json_object *host_ip;
+  if (!json_object_object_get_ex(config, "ip", &host_ip)) {
+    fprintf(stderr, "failed reading ip\n");
+    exit(1);
+  }
+  const char *ipString= json_object_to_json_string_ext(host_ip, JSON_C_TO_STRING_PRETTY);
+  json_object *this_date = get_config_date();
+
+  char command[1024];
+  printf("hostString = %s, ipString = %s\n",hostString, ipString );
+  snprintf(command, sizeof(command), "ssh %s@%s 'ms time'", hostString, ipString);
+
+  const char *time_string = execute_command(command);
+  json_object *other_time = json_tokener_parse(time_string);
+
+  if (other_time == NULL) {
+      fprintf(stderr, "Error: Failed to parse JSON string.\n");
+      exit(1);
+  }
+
+  printf("my time= \n %s\n", json_object_to_json_string_ext(this_date, JSON_C_TO_STRING_PRETTY));
+  printf("other time= \n %s\n", json_object_to_json_string_ext(other_time , JSON_C_TO_STRING_PRETTY));
 
 }
 
@@ -270,6 +303,9 @@ int main(int argc, char **argv){
     } else if (!strcmp(argv[i], "test")) {
       char *result = execute_command("load");
       printf("%s\n", result);
+    } else if (!strcmp(argv[i], "time")) {
+      json_object *date = get_config_date();
+      printf("%s\n", json_object_to_json_string_ext(date, JSON_C_TO_STRING_PRETTY));
     }
 
   }
