@@ -7,11 +7,46 @@
 #include <time.h> //for server-client date comparison and check
 
 
-static void
-get_current_date(json_object *result) {
+static int
+get_int_field(json_object *obj, const char *key) {
+  json_object *field;
+  if (json_object_object_get_ex(obj, key, &field)) {
+    return json_object_get_int(field);
+  }
+  return 0;
+}
+
+static int
+compare_dates(json_object *my_date, json_object *other_date) {
+  const char *fields[] = {
+    "tm_year", "tm_mon", "tm_day", "tm_hour", "tm_min", "tm_sec"
+  };
+
+  int num_fields = sizeof(fields) / sizeof(fields[0]);
+
+  for (int i = 0; i < num_fields; i++) {
+    const char *key = fields[i];
+
+    int val1 = get_int_field(my_date, key);
+    int val2 = get_int_field(other_date, key);
+
+    if (val1 < val2) {
+      return -1;
+    }
+    if (val1 > val2) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static json_object*
+get_current_date() {
   time_t t = time(NULL);
 
   struct tm *current_time = localtime(&t);
+  json_object *result = json_object_new_object();
 
   json_object_object_add(result, "tm_sec",   json_object_new_int(current_time->tm_sec));
   json_object_object_add(result, "tm_min",   json_object_new_int(current_time->tm_min));
@@ -22,6 +57,8 @@ get_current_date(json_object *result) {
   json_object_object_add(result, "tm_wday",  json_object_new_int(current_time->tm_wday));
   json_object_object_add(result, "tm_yday",  json_object_new_int(current_time->tm_yday));
   json_object_object_add(result, "tm_isdst", json_object_new_int(current_time->tm_isdst));
+
+  return result;
 }
 
 static char*
@@ -73,6 +110,7 @@ execute_command(const char* command) {
   pclose(pipe);
   return result;
 }
+
 
 static void
 ensure_directory_exists(const char *path) {
@@ -155,8 +193,7 @@ static json_object*
 get_default_json() {
 
   json_object *result = json_object_new_object();
-  json_object *time = json_object_new_object();
-  get_current_date(time);
+  json_object *time = get_current_date();
 
   json_object_object_add(result, "ip", json_object_new_string("10.0.0.1"));
   json_object_object_add(result, "clientDirectory", json_object_new_string("shared"));
@@ -165,7 +202,6 @@ get_default_json() {
   json_object_object_add(result, "time", time);
 
   return result;
-
 }
 
 static void
@@ -221,8 +257,11 @@ usage() {
 static json_object*
 get_config_date() {
   json_object *config = read_config();
-  json_object *result = json_object_new_object();
-  json_object_object_get_ex(config, "time", &result);
+  json_object *result = NULL;
+  if (json_object_object_get_ex(config, "time", &result)) {
+    json_object_get(result);
+  }
+  json_object_put(config);
   return result;
 }
 
@@ -234,14 +273,13 @@ update_date(const char *date) {
     printf("incorrect time passed\n");
     exit(1);
   }
-  get_current_date(time);
+  printf("%s\n", json_object_to_json_string_ext(time, JSON_C_TO_STRING_PRETTY));
   json_object *config = read_config();
 
   json_object_object_add(config, "time", time);
 
   write_json(config);
   json_object_put(config);
-  json_object_put(time);
 }
 static void
 update_date_json(json_object *date) {
@@ -258,32 +296,75 @@ update_date_json(json_object *date) {
   json_object_put(config);
 }
 
-static void
-status() {
+static char**
+get_remote_info() {
   json_object *config = read_config();
   if (config == NULL) {
     fprintf(stderr, "failed reading config\n");
     exit(1);
   }
-  json_object *hostname;
+  json_object *hostname, *host_ip, *serverDirectory, *clientDirectory;
+
   if (!json_object_object_get_ex(config, "serverHostName", &hostname)) {
     fprintf(stderr, "failed reading serverHostName\n");
     exit(1);
   }
-  const char *hostString = json_object_to_json_string_ext(hostname, JSON_C_TO_STRING_PRETTY);
-  json_object *host_ip;
   if (!json_object_object_get_ex(config, "ip", &host_ip)) {
     fprintf(stderr, "failed reading ip\n");
     exit(1);
   }
-  const char *ipString= json_object_to_json_string_ext(host_ip, JSON_C_TO_STRING_PRETTY);
-  json_object *this_date = get_config_date();
+
+  if (!json_object_object_get_ex(config, "serverDirectory", &serverDirectory)) {
+    fprintf(stderr, "failed reading serverDirectory\n");
+    exit(1);
+  }
+
+  if (!json_object_object_get_ex(config, "clientDirectory", &clientDirectory)) {
+    fprintf(stderr, "failed reading clientDirectory\n");
+    exit(1);
+  }
+
+  const char *hostString = json_object_get_string(hostname);
+  const char *ipString= json_object_get_string(host_ip);
+  const char *serverDirectoryString = json_object_get_string(serverDirectory);
+  const char *clientDirectoryString = json_object_get_string(clientDirectory);
+
+  char **result = malloc(sizeof(char*) * 4);
+  result[0] = strdup(hostString);
+  result[1] = strdup(ipString);
+  result[2] = strdup(serverDirectoryString);
+  result[3] = strdup(clientDirectoryString);
+
+  json_object_put(config);
+
+  return result;
+}
+
+static char*
+execute_command_remote(const char* exec) {
+
+  char **remoteInfo = get_remote_info();
+  char *hostString = remoteInfo[0];
+  char *ipString= remoteInfo[1];
 
   char command[1024];
   printf("hostString = %s, ipString = %s\n",hostString, ipString );
-  snprintf(command, sizeof(command), "ssh %s@%s 'ms time'", hostString, ipString);
+  snprintf(command, sizeof(command), "ssh %s@%s %s", hostString, ipString, exec);
 
-  char *time_string = execute_command(command);
+  free(remoteInfo[0]);
+  free(remoteInfo[1]);
+  free(remoteInfo[2]);
+  free(remoteInfo[3]);
+  free(remoteInfo);
+
+  return execute_command(command);
+}
+
+static void
+status() {
+  json_object *this_date = get_config_date();
+
+  char *time_string = execute_command_remote("ms time");
   json_object *other_time = json_tokener_parse(time_string);
 
   if (other_time == NULL) {
@@ -294,10 +375,21 @@ status() {
   printf("my time= \n %s\n", json_object_to_json_string_ext(this_date, JSON_C_TO_STRING_PRETTY));
   printf("other time= \n %s\n", json_object_to_json_string_ext(other_time , JSON_C_TO_STRING_PRETTY));
 
+  int compare = compare_dates(this_date, other_time);
+
+  if (compare == -1) {
+    printf("This host is outdated\n");
+  } else if (compare == 0) {
+    printf("The server is on pair\n");
+  } else {
+    printf("The server is outdated\n");
+  }
+
   free(time_string);
   json_object_put(other_time);
-  json_object_put(config);
   json_object_put(this_date);
+
+  exit(0);
 
 }
 
@@ -307,12 +399,74 @@ diff() {
 }
 static void
 load() {
+  const char *timeString = execute_command_remote("ms time");
+  update_date(timeString);
 
+  char **remoteInfo = get_remote_info();
+  char *hostString = remoteInfo[0];
+  char *ipString = remoteInfo[1];
+  char *serverDirectoryString = remoteInfo[2];
+  char *clientDirectoryString = remoteInfo[3];
+
+  char command[4096];
+  snprintf(command, sizeof(command), "rsync -avzh --delete -e ssh %s@%s:%s %s\n", hostString, ipString, serverDirectoryString, clientDirectoryString);
+  char *result = execute_command(command);
+
+  printf("%s\n", result);
+
+  free(remoteInfo[0]);
+  free(remoteInfo[1]);
+  free(remoteInfo[2]);
+  free(remoteInfo[3]);
+  free(remoteInfo);
+
+  free((void*)timeString);
+  free(result);
+
+  exit(0);
 }
 static void
 save() {
+  json_object *current_date = get_current_date();
+  const char *timeString = json_object_to_json_string_ext(current_date, JSON_C_TO_STRING_PLAIN);
+  update_date(timeString);
+  char base64_command[2048];
+  snprintf(base64_command, sizeof(base64_command), "echo '%s' | base64 -w 0", timeString);
+
+  char *base64_string = execute_command(base64_command);
+
+  base64_string[strcspn(base64_string, "\n")] = 0;
+
+  char remote_command[2048];
+  snprintf(remote_command, sizeof(remote_command), "ms update %s", base64_string);
+
+  execute_command_remote(remote_command);
+
+  char **remoteInfo = get_remote_info();
+  char *hostString = remoteInfo[0];
+  char *ipString = remoteInfo[1];
+  char *serverDirectoryString = remoteInfo[2];
+  char *clientDirectoryString = remoteInfo[3];
+
+  char command[4096];
+  snprintf(command, sizeof(command), "rsync -avzh --delete -e ssh %s %s@%s:%s\n", clientDirectoryString, hostString, ipString, serverDirectoryString);
+  char *result = execute_command(command);
+
+  printf("%s\n", result);
+
+  free(remoteInfo[0]);
+  free(remoteInfo[1]);
+  free(remoteInfo[2]);
+  free(remoteInfo[3]);
+  free(remoteInfo);
+
+  free((void*)timeString);
+  free(result);
+
+  exit(0);
 
 }
+
 
 int main(const int argc, char **argv){
 
@@ -330,10 +484,21 @@ int main(const int argc, char **argv){
     }
     else if (!strcmp(argv[i], "update")) {
       if (argc == 3) {
-        update_date(argv[2]);
+        const char *base64_string = argv[2];
+
+        char decode_command[2048];
+        snprintf(decode_command, sizeof(decode_command), "echo '%s' | base64 -d", base64_string);
+
+        char *json_string = execute_command(decode_command);
+
+        update_date(json_string);
+        free(json_string);
+
+        i++;
+      } else {
+        fprintf(stderr, "Error: update requires one more argument\n");
       }
-    }
-    else if (!strcmp(argv[i], "diff")) {
+    }    else if (!strcmp(argv[i], "diff")) {
       diff();
     }
     else if (!strcmp(argv[i], "config")) {
