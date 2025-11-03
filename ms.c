@@ -146,15 +146,15 @@ static FILE
 static void
 write_json(json_object *json) {
   FILE *config = get_default_config_file();
-  char *config_json_string = json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY);
+  const char *config_json_string = json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY);
   fprintf(config, "%s\n", config_json_string);
   fclose(config);
 }
 
-static void
-get_default_json(json_object *result) {
+static json_object*
+get_default_json() {
 
-  result = json_object_new_object();
+  json_object *result = json_object_new_object();
   json_object *time = json_object_new_object();
   get_current_date(time);
 
@@ -163,14 +163,18 @@ get_default_json(json_object *result) {
   json_object_object_add(result, "serverDirectory", json_object_new_string("shared"));
   json_object_object_add(result, "time", time);
 
+  return result;
+
 }
 
 static void
 create_default_config() {
   printf("Creating default configuration...\n");
 
-  json_object *config_json;
-  get_default_json(config_json);
+  json_object *config_json = get_default_json();
+  const char *s = json_object_to_json_string_ext(config_json, JSON_C_TO_STRING_PRETTY);
+  printf("printing default json \n%s\n", s);
+
 
   write_json(config_json);
 
@@ -196,14 +200,14 @@ read_config() {
       return nullptr;
     }
   } else {
-    char *s = json_object_to_json_string_ext(parsed_json, JSON_C_TO_STRING_PRETTY);
+    const char *s = json_object_to_json_string_ext(parsed_json, JSON_C_TO_STRING_PRETTY);
     printf("%s\n", s);
     return parsed_json;
   }
 
   json_object *new_parsed_json = json_object_from_file(path);
 
-  char *s = json_object_to_json_string_ext(new_parsed_json, JSON_C_TO_STRING_PRETTY);
+  const char *s = json_object_to_json_string_ext(new_parsed_json, JSON_C_TO_STRING_PRETTY);
   printf("%s\n", s);
   return new_parsed_json;
 }
@@ -248,9 +252,6 @@ diff() {
 int main(int argc, char **argv){
 
   if (argc == 1) {
-    json_object *result = read_config();
-    char *s = json_object_to_json_string_ext(result, JSON_C_TO_STRING_PRETTY);
-    printf("%s\n", s);
     usage();
 
   }
