@@ -227,13 +227,32 @@ get_config_date() {
 }
 
 static void
-update_date() {
+update_date(const char *date) {
 
-  json_object *time = json_object_new_object();
+  json_object *time = json_tokener_parse(date);
+  if (time == NULL) {
+    printf("incorrect time passed\n");
+    exit(1);
+  }
   get_current_date(time);
   json_object *config = read_config();
 
   json_object_object_add(config, "time", time);
+
+  write_json(config);
+  json_object_put(config);
+  json_object_put(time);
+}
+static void
+update_date_json(json_object *date) {
+
+  if (date == NULL) {
+    printf("incorrect time passed\n");
+    exit(1);
+  }
+  json_object *config = read_config();
+
+  json_object_object_add(config, "time", date);
 
   write_json(config);
   json_object_put(config);
@@ -264,7 +283,7 @@ status() {
   printf("hostString = %s, ipString = %s\n",hostString, ipString );
   snprintf(command, sizeof(command), "ssh %s@%s 'ms time'", hostString, ipString);
 
-  const char *time_string = execute_command(command);
+  char *time_string = execute_command(command);
   json_object *other_time = json_tokener_parse(time_string);
 
   if (other_time == NULL) {
@@ -275,14 +294,27 @@ status() {
   printf("my time= \n %s\n", json_object_to_json_string_ext(this_date, JSON_C_TO_STRING_PRETTY));
   printf("other time= \n %s\n", json_object_to_json_string_ext(other_time , JSON_C_TO_STRING_PRETTY));
 
+  free(time_string);
+  json_object_put(other_time);
+  json_object_put(config);
+  json_object_put(this_date);
+
 }
 
 static void
 diff() {
 
 }
+static void
+load() {
 
-int main(int argc, char **argv){
+}
+static void
+save() {
+
+}
+
+int main(const int argc, char **argv){
 
   if (argc == 1) {
     usage();
@@ -292,18 +324,30 @@ int main(int argc, char **argv){
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "status")) {
       status();
-    } else if (!strcmp(argv[i], "init")) {
+    }
+    else if (!strcmp(argv[i], "init")) {
       create_default_config();
-    } else if (!strcmp(argv[i], "diff")) {
+    }
+    else if (!strcmp(argv[i], "update")) {
+      if (argc == 3) {
+        update_date(argv[2]);
+      }
+    }
+    else if (!strcmp(argv[i], "diff")) {
       diff();
-    } else if (!strcmp(argv[i], "config")) {
+    }
+    else if (!strcmp(argv[i], "config")) {
       char path[1024];
       get_default_config_path(path, sizeof(path));
       printf("The path to the config file is: %s\n", path);
-    } else if (!strcmp(argv[i], "test")) {
-      char *result = execute_command("load");
-      printf("%s\n", result);
-    } else if (!strcmp(argv[i], "time")) {
+    }
+    else if (!strcmp(argv[i], "load")) {
+      load();
+    }
+    else if (!strcmp(argv[i], "save")) {
+      save();
+    }
+    else if (!strcmp(argv[i], "time")) {
       json_object *date = get_config_date();
       printf("%s\n", json_object_to_json_string_ext(date, JSON_C_TO_STRING_PRETTY));
     }
