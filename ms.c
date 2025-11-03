@@ -277,7 +277,6 @@ status() {
 
 }
 
-
 static void
 diff() {
 
