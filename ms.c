@@ -515,6 +515,8 @@ int main(const int argc, char **argv){
     else if (!strcmp(argv[i], "time")) {
       json_object *date = get_config_date();
       printf("%s\n", json_object_to_json_string_ext(date, JSON_C_TO_STRING_PRETTY));
+    } else {
+      usage();
     }
 
   }
