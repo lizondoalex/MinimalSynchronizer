@@ -548,7 +548,6 @@ static void diff() {
     snprintf(command, sizeof(command),
              "rsync -avzni --delete -e ssh %s %s@%s:%s",
              clientDirectoryString, hostString, ipString, serverDirectoryString);
-  printf("command is %s\n", command);
 
     printf("Calculating differences...\n");
     char *output = execute_command(command);
