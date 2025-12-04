@@ -19,7 +19,7 @@ get_int_field(json_object *obj, const char *key) {
 static int
 compare_dates(json_object *my_date, json_object *other_date) {
   const char *fields[] = {
-    "tm_year", "tm_mon", "tm_day", "tm_hour", "tm_min", "tm_sec"
+    "tm_year", "tm_mon", "tm_mday", "tm_hour", "tm_min", "tm_sec"
   };
 
   int num_fields = sizeof(fields) / sizeof(fields[0]);
@@ -394,10 +394,6 @@ status() {
 }
 
 static void
-diff() {
-
-}
-static void
 load() {
   const char *timeString = execute_command_remote("ms time");
   update_date(timeString);
@@ -467,6 +463,138 @@ save() {
 
 }
 
+static json_object*
+json_from_timestamp(time_t t) {
+  struct tm *time_info = localtime(&t);
+  json_object *result = json_object_new_object();
+
+  json_object_object_add(result, "tm_sec",   json_object_new_int(time_info->tm_sec));
+  json_object_object_add(result, "tm_min",   json_object_new_int(time_info->tm_min));
+  json_object_object_add(result, "tm_hour",  json_object_new_int(time_info->tm_hour));
+  json_object_object_add(result, "tm_mday",  json_object_new_int(time_info->tm_mday));
+  json_object_object_add(result, "tm_mon",   json_object_new_int(time_info->tm_mon));
+  json_object_object_add(result, "tm_year",  json_object_new_int(time_info->tm_year));
+  json_object_object_add(result, "tm_wday",  json_object_new_int(time_info->tm_wday));
+  json_object_object_add(result, "tm_yday",  json_object_new_int(time_info->tm_yday));
+  json_object_object_add(result, "tm_isdst", json_object_new_int(time_info->tm_isdst));
+
+  return result;
+}
+
+static char* get_client_directory() {
+
+}
+
+static void
+update() {
+  json_object *config = read_config();
+
+  json_object *dir_obj;
+  char *client_dir= NULL;
+
+  if (json_object_object_get_ex(config, "clientDirectory", &dir_obj)) {
+    client_dir = strdup(json_object_get_string(dir_obj));
+  }
+  json_object_put(config);
+
+  if (!client_dir) {
+    fprintf(stderr, "Error: Could not get client directory.\n");
+    return;
+  }
+
+  char command[4096];
+  snprintf(command, sizeof(command),
+           "find '%s' -type f -printf '%%T@\\n' | sort -rn | head -n 1",
+           client_dir);
+
+  char *output = execute_command(command);
+
+  if (!output || strlen(output) < 1) {
+    printf("No files found in %s\n", client_dir);
+    free(client_dir);
+    if (output) free(output);
+    return;
+  }
+
+  time_t file_timestamp = (time_t) atoi(output);
+
+  json_object *file_sys_date = json_from_timestamp(file_timestamp);
+
+  json_object *config_date = get_config_date();
+
+  printf("Checking file system vs config...\n");
+
+  if (compare_dates(file_sys_date, config_date) == 1) {
+    puts("Updating config time.\n");
+    update_date_json(file_sys_date);
+  } else {
+    printf("Config is already up to date.\n");
+    json_object_put(file_sys_date);
+  }
+
+  json_object_put(config_date);
+  free(client_dir);
+  free(output);
+}
+
+static void diff() {
+    char **remoteInfo = get_remote_info();
+    char *hostString = remoteInfo[0];
+    char *ipString = remoteInfo[1];
+    char *serverDirectoryString = remoteInfo[2];
+    char *clientDirectoryString = remoteInfo[3];
+
+    char command[4096];
+    snprintf(command, sizeof(command),
+             "rsync -avzni --delete -e ssh %s %s@%s:%s",
+             clientDirectoryString, hostString, ipString, serverDirectoryString);
+  printf("command is %s\n", command);
+
+    printf("Calculating differences...\n");
+    char *output = execute_command(command);
+
+    if (!output || strlen(output) == 0) {
+        printf("Everything is up to date.\n");
+        free(remoteInfo[0]); free(remoteInfo[1]); free(remoteInfo[2]); free(remoteInfo[3]); free(remoteInfo);
+        if(output) free(output);
+        return;
+    }
+
+    char *line = strtok(output, "\n");
+    while (line != NULL) {
+
+        if (strstr(line, "sending incremental file list")) {
+            line = strtok(NULL, "\n");
+            continue;
+        }
+
+        if (strncmp(line, "*deleting", 9) == 0) {
+            char *filename = line + 10;
+            printf("Del: %s\n", filename);
+        }
+
+        else if (strncmp(line, "<f+++++++++", 11) == 0) {
+            char *filename = line + 12;
+            printf("New: %s\n", filename);
+        }
+
+        else if (strncmp(line, "<f", 2) == 0) {
+             char *filename = line + 12;
+             printf("Mod: %s\n", filename);
+        }
+
+        line = strtok(NULL, "\n");
+    }
+
+    free(remoteInfo[0]);
+    free(remoteInfo[1]);
+    free(remoteInfo[2]);
+    free(remoteInfo[3]);
+    free(remoteInfo);
+    free(output);
+
+    exit(0);
+}
 
 int main(const int argc, char **argv){
 
@@ -496,7 +624,7 @@ int main(const int argc, char **argv){
 
         i++;
       } else {
-        fprintf(stderr, "Error: update requires one more argument\n");
+        update();
       }
     }    else if (!strcmp(argv[i], "diff")) {
       diff();

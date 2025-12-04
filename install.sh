@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
 
-mkdir ~/.conf/minsync
+mkdir ~/.config/minsync
+sudo cp ./ms /bin/
