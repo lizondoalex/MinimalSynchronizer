@@ -273,7 +273,6 @@ update_date(const char *date) {
     printf("incorrect time passed\n");
     exit(1);
   }
-  printf("%s\n", json_object_to_json_string_ext(time, JSON_C_TO_STRING_PRETTY));
   json_object *config = read_config();
 
   json_object_object_add(config, "time", time);
@@ -348,7 +347,6 @@ execute_command_remote(const char* exec) {
   char *ipString= remoteInfo[1];
 
   char command[1024];
-  printf("hostString = %s, ipString = %s\n",hostString, ipString );
   snprintf(command, sizeof(command), "ssh %s@%s %s", hostString, ipString, exec);
 
   free(remoteInfo[0]);
