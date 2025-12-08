@@ -249,8 +249,17 @@ read_config() {
 }
 
 static void
-usage() {
-  puts("usage: ms [option]\n");
+help() {
+  puts("Usage: ms [option]\n");
+  puts("Options: ");
+  puts("load: will replace all files in the host directory with the ones in the server directory");
+  puts("save: will replace all files in the server directory with the ones in the host directory");
+  puts("status: Compares dates from server and host");
+  puts("update: Updates the time of the host based on the most recent file date on the specified home directory. If another argument is passed, it will be recognised as a base64 string representing a date in json and will overwrite the date in the config file");
+  puts("diff: Shows the difference in files between the server and the host from the host's perspective");
+  puts("config: Shows the path to the config file");
+  puts("time: Shows the time in the config file");
+
   exit(1);
 }
 
@@ -594,10 +603,8 @@ static void diff() {
 }
 
 int main(const int argc, char **argv){
-
   if (argc == 1) {
-    usage();
-
+    help();
   }
 
   for (int i = 1; i < argc; i++) {
@@ -640,8 +647,10 @@ int main(const int argc, char **argv){
     else if (!strcmp(argv[i], "time")) {
       json_object *date = get_config_date();
       printf("%s\n", json_object_to_json_string_ext(date, JSON_C_TO_STRING_PRETTY));
+    } else if (!strcmp(argv[i], "help")) {
+      help();
     } else {
-      usage();
+      help();
     }
 
   }
